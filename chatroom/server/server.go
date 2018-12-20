@@ -2,13 +2,19 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"net"
+	"os"
 	"strings"
 )
+
+const LOG_DIRECTORY = "./test.log"
 
 var onlineConns = make(map[string]net.Conn)
 var messageQueue = make(chan string, 1000)
 var quitChan = make(chan bool)
+var logFile *os.File
+var logger *log.Logger
 
 func CheckError(err error) {
 	if err != nil {
@@ -18,7 +24,17 @@ func CheckError(err error) {
 
 func ProcessInfo(conn net.Conn) {
 	buf := make([]byte, 1024)
-	defer conn.Close()
+
+	// 退出时删除onlineConns的key
+	defer func(conn net.Conn) {
+		addr := fmt.Sprintf("%s", conn.RemoteAddr())
+		delete(onlineConns, addr)
+		conn.Close()
+
+		for i := range onlineConns {
+			fmt.Println("now online conns: " + i)
+		}
+	}(conn)
 
 	for {
 		numOfBytes, err := conn.Read(buf)
@@ -52,7 +68,7 @@ func doProcessMessage(message string) {
 	contents := strings.Split(message, "#")
 	if len(contents) > 1 {
 		addr := contents[0]
-		sendMessage := contents[1]
+		sendMessage := strings.Join(contents[1:], "#")
 
 		// 处理一下防止里面有空格
 		addr = strings.Trim(addr, " ")
@@ -64,16 +80,40 @@ func doProcessMessage(message string) {
 				fmt.Println("online conns send failure!")
 			}
 		}
+	} else {
+		contents := strings.Split(message, "*")
+		if strings.ToUpper(contents[1]) == "LIST" {
+			var ips string = ""
+			for i := range onlineConns {
+				ips = ips + "|" + i
+			}
+			if conn, ok := onlineConns[contents[0]]; ok {
+				_, err := conn.Write([]byte(ips))
+				if err != nil {
+					fmt.Println("online conns send failure!")
+				}
+			}
+		}
 	}
 
 }
 
 func main() {
+	logFile, err := os.OpenFile(LOG_DIRECTORY, os.O_RDWR|os.O_CREATE, 0660)
+	if err != nil {
+		fmt.Println("log file create failure!")
+		os.Exit(-1)
+	}
+
 	listenSocket, err := net.Listen("tcp", "127.0.0.1:8080")
 	CheckError(err)
 	defer listenSocket.Close()
 
+	logger = log.New(logFile, "\r\n", log.Ldate|log.Ltime|log.Llongfile)
+
 	fmt.Println("Server is waiting ...")
+
+	logger.Println("I am writing the logs ...")
 
 	go ConsumeMessage()
 

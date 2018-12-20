@@ -45,7 +45,10 @@ func main() {
 	buf := make([]byte, 1024)
 	for {
 		_, err := conn.Read(buf)
-		CheckError(err)
+		if err != nil {
+			fmt.Println("您已经退出 欢迎再次使用！")
+			os.Exit(0)
+		}
 		fmt.Println("receive server message content: " + string(buf))
 	}
 	fmt.Println("Client program end!")
